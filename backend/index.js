@@ -10,6 +10,10 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+app.use((req, _res, next) => {
+  console.log(`[req] ${req.method} ${req.path} auth=${req.headers.authorization?.slice(0,30)}`);
+  next();
+});
 
 app.use("/", routes);
 app.use("/api", blendRouter);

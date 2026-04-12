@@ -1,15 +1,22 @@
 const express = require("express");
-const { body, validationResult } = require("express-validator");
-const supabase = require("../services/supabase");
+const { body, query, validationResult } = require("express-validator");
+const { createClient } = require("@supabase/supabase-js");
 
 const router = express.Router();
 
+const INITIAL_MASTERY = 0.3;
+
+function nextMasteryOnSeen(current) {
+  return Math.min(1.0, current + 0.05);
+}
+
+function nextMasteryOnClick(current) {
+  return Math.max(0.0, current - 0.15);
+}
+
 function validationError(req, res) {
   const errors = validationResult(req);
-  if (errors.isEmpty()) {
-    return null;
-  }
-
+  if (errors.isEmpty()) return null;
   return res.status(400).json({ error: errors.array()[0].msg });
 }
 
@@ -17,14 +24,16 @@ function sendError(res, status, message) {
   return res.status(status).json({ error: message });
 }
 
-function calculateMasteryScore(timesClicked, timesSeen) {
-  if (!timesSeen || timesSeen <= 0) {
-    return 0;
-  }
-
-  return 1 - timesClicked / timesSeen;
+// Build a user-scoped Supabase client so RLS auth.uid() resolves correctly
+function userClient(token) {
+  return createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY,
+    { global: { headers: { Authorization: `Bearer ${token}` } } }
+  );
 }
 
+// Auth middleware — same raw-fetch approach as the main auth middleware
 async function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const parts = authHeader.split(" ");
@@ -35,34 +44,64 @@ async function requireAuth(req, res, next) {
 
   const token = parts[1];
 
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) {
+  const resp = await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: process.env.SUPABASE_ANON_KEY,
+    },
+  });
+
+  if (!resp.ok) {
     return sendError(res, 401, "Invalid or expired token");
   }
 
-  req.user_id = data.user.id;
+  const user = await resp.json();
+  req.user_id = user.id;
   req.token = token;
   return next();
 }
 
 router.use(requireAuth);
 
+// GET /vocab
 router.get("/", async (req, res) => {
-  const { data, error } = await supabase
+  const db = userClient(req.token);
+  const { data, error } = await db
     .from("vocabulary")
     .select("*")
     .eq("user_id", req.user_id)
     .order("mastery_score", { ascending: true });
 
-  if (error) {
-    return sendError(res, 400, error.message);
-  }
-
+  if (error) return sendError(res, 400, error.message);
   return res.json(data);
 });
 
-async function findExistingWord(userId, wordNative, wordEnglish, language) {
-  const { data, error } = await supabase
+// GET /vocab/weak
+router.get(
+  "/weak",
+  [query("limit").optional().isInt({ min: 1, max: 50 })],
+  async (req, res) => {
+    const invalid = validationError(req, res);
+    if (invalid) return invalid;
+
+    const limit = parseInt(req.query.limit) || 8;
+    const db = userClient(req.token);
+
+    const { data, error } = await db
+      .from("vocabulary")
+      .select("*")
+      .eq("user_id", req.user_id)
+      .lt("mastery_score", 0.3)
+      .order("mastery_score", { ascending: true })
+      .limit(limit);
+
+    if (error) return sendError(res, 400, error.message);
+    return res.json({ words: data });
+  }
+);
+
+async function findExistingWord(db, userId, wordNative, wordEnglish, language) {
+  const { data, error } = await db
     .from("vocabulary")
     .select("*")
     .eq("user_id", userId)
@@ -71,54 +110,31 @@ async function findExistingWord(userId, wordNative, wordEnglish, language) {
     .eq("language", language)
     .limit(1);
 
-  if (error) {
-    return { error };
-  }
-
+  if (error) return { error };
   return { row: data[0] || null };
 }
 
+// POST /vocab/record-click
 router.post(
   "/record-click",
   [
-    body("word_native")
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("word_native is required"),
-    body("word_english")
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("word_english is required"),
-    body("language")
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("language is required"),
+    body("word_native").isString().trim().notEmpty().withMessage("word_native is required"),
+    body("word_english").isString().trim().notEmpty().withMessage("word_english is required"),
+    body("language").isString().trim().notEmpty().withMessage("language is required"),
   ],
   async (req, res) => {
     const invalid = validationError(req, res);
-    if (invalid) {
-      return invalid;
-    }
+    if (invalid) return invalid;
 
     const { word_native, word_english, language } = req.body;
     const now = new Date().toISOString();
+    const db = userClient(req.token);
 
-    const existingResult = await findExistingWord(
-      req.user_id,
-      word_native,
-      word_english,
-      language
-    );
-
-    if (existingResult.error) {
-      return sendError(res, 400, existingResult.error.message);
-    }
+    const existingResult = await findExistingWord(db, req.user_id, word_native, word_english, language);
+    if (existingResult.error) return sendError(res, 400, existingResult.error.message);
 
     if (!existingResult.row) {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("vocabulary")
         .insert({
           user_id: req.user_id,
@@ -127,127 +143,97 @@ router.post(
           language,
           times_seen: 1,
           times_clicked: 1,
-          mastery_score: 0,
+          mastery_score: nextMasteryOnClick(INITIAL_MASTERY),
           last_seen: now,
+          first_seen: now,
+          last_clicked: now,
         })
         .select()
         .single();
 
-      if (error) {
-        return sendError(res, 400, error.message);
-      }
-
+      if (error) return sendError(res, 400, error.message);
       return res.status(201).json(data);
     }
 
-    const nextTimesSeen = existingResult.row.times_seen + 1;
-    const nextTimesClicked = existingResult.row.times_clicked + 1;
-    const nextMastery = calculateMasteryScore(nextTimesClicked, nextTimesSeen);
-
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("vocabulary")
       .update({
-        times_seen: nextTimesSeen,
-        times_clicked: nextTimesClicked,
-        mastery_score: nextMastery,
+        times_seen: existingResult.row.times_seen + 1,
+        times_clicked: existingResult.row.times_clicked + 1,
+        mastery_score: nextMasteryOnClick(existingResult.row.mastery_score),
         last_seen: now,
+        last_clicked: now,
       })
       .eq("id", existingResult.row.id)
       .select()
       .single();
 
-    if (error) {
-      return sendError(res, 400, error.message);
-    }
-
+    if (error) return sendError(res, 400, error.message);
     return res.json(data);
   }
 );
 
+// POST /vocab/record-seen-batch
 router.post(
-  "/record-seen",
+  "/record-seen-batch",
   [
-    body("word_native")
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("word_native is required"),
-    body("word_english")
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("word_english is required"),
-    body("language")
-      .isString()
-      .trim()
-      .notEmpty()
-      .withMessage("language is required"),
+    body("words").isArray({ min: 1 }).withMessage("words must be a non-empty array"),
+    body("words.*.word_native").isString().trim().notEmpty(),
+    body("words.*.word_english").isString().trim().notEmpty(),
+    body("words.*.language").isString().trim().notEmpty(),
   ],
   async (req, res) => {
     const invalid = validationError(req, res);
-    if (invalid) {
-      return invalid;
-    }
+    if (invalid) return invalid;
 
-    const { word_native, word_english, language } = req.body;
+    const { words } = req.body;
+    if (words.length > 50) return sendError(res, 400, "words array cannot exceed 50 items");
+
     const now = new Date().toISOString();
+    const db = userClient(req.token);
+    const results = [];
 
-    const existingResult = await findExistingWord(
-      req.user_id,
-      word_native,
-      word_english,
-      language
-    );
+    for (const { word_native, word_english, language } of words) {
+      const existingResult = await findExistingWord(db, req.user_id, word_native, word_english, language);
+      if (existingResult.error) return sendError(res, 400, existingResult.error.message);
 
-    if (existingResult.error) {
-      return sendError(res, 400, existingResult.error.message);
-    }
+      if (!existingResult.row) {
+        const { data, error } = await db
+          .from("vocabulary")
+          .insert({
+            user_id: req.user_id,
+            word_native,
+            word_english,
+            language,
+            times_seen: 1,
+            times_clicked: 0,
+            mastery_score: nextMasteryOnSeen(INITIAL_MASTERY),
+            last_seen: now,
+            first_seen: now,
+          })
+          .select()
+          .single();
 
-    if (!existingResult.row) {
-      const { data, error } = await supabase
-        .from("vocabulary")
-        .insert({
-          user_id: req.user_id,
-          word_native,
-          word_english,
-          language,
-          times_seen: 1,
-          times_clicked: 0,
-          mastery_score: 1,
-          last_seen: now,
-        })
-        .select()
-        .single();
+        if (error) return sendError(res, 400, error.message);
+        results.push(data);
+      } else {
+        const { data, error } = await db
+          .from("vocabulary")
+          .update({
+            times_seen: existingResult.row.times_seen + 1,
+            mastery_score: nextMasteryOnSeen(existingResult.row.mastery_score),
+            last_seen: now,
+          })
+          .eq("id", existingResult.row.id)
+          .select()
+          .single();
 
-      if (error) {
-        return sendError(res, 400, error.message);
+        if (error) return sendError(res, 400, error.message);
+        results.push(data);
       }
-
-      return res.status(201).json(data);
     }
 
-    const nextTimesSeen = existingResult.row.times_seen + 1;
-    const nextMastery = calculateMasteryScore(
-      existingResult.row.times_clicked,
-      nextTimesSeen
-    );
-
-    const { data, error } = await supabase
-      .from("vocabulary")
-      .update({
-        times_seen: nextTimesSeen,
-        mastery_score: nextMastery,
-        last_seen: now,
-      })
-      .eq("id", existingResult.row.id)
-      .select()
-      .single();
-
-    if (error) {
-      return sendError(res, 400, error.message);
-    }
-
-    return res.json(data);
+    return res.json(results);
   }
 );
 
