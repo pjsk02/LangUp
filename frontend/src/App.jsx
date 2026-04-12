@@ -23,6 +23,16 @@ export default function App() {
     setSession(null)
   }
 
+  function handleProfileChange(updates) {
+    const updated = {
+      ...session.profile,
+      ...(updates.level !== undefined ? { level: updates.level } : {}),
+      ...(updates.target_language !== undefined ? { target_lang: updates.target_language } : {}),
+    }
+    localStorage.setItem('profile', JSON.stringify(updated))
+    setSession(s => ({ ...s, profile: updated }))
+  }
+
   if (!session) return <Auth onLogin={handleLogin} />
-  return <Chat session={session} onLogout={handleLogout} />
+  return <Chat session={session} onLogout={handleLogout} onProfileChange={handleProfileChange} />
 }

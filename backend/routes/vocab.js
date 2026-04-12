@@ -237,4 +237,70 @@ router.post(
   }
 );
 
+// POST /vocab/record-answer — user attempted to fill in a blank
+// correct=true  → active recall reward (+0.20)
+// correct=false → small penalty (-0.10)
+router.post(
+  "/record-answer",
+  [
+    body("word_native").isString().trim().notEmpty().withMessage("word_native is required"),
+    body("word_english").isString().trim().notEmpty().withMessage("word_english is required"),
+    body("language").isString().trim().notEmpty().withMessage("language is required"),
+    body("correct").isBoolean().withMessage("correct must be a boolean"),
+  ],
+  async (req, res) => {
+    const invalid = validationError(req, res);
+    if (invalid) return invalid;
+
+    const { word_native, word_english, language, correct } = req.body;
+    const now = new Date().toISOString();
+    const db = userClient(req.token);
+
+    const existingResult = await findExistingWord(db, req.user_id, word_native, word_english, language);
+    if (existingResult.error) return sendError(res, 400, existingResult.error.message);
+
+    const delta = correct ? 0.20 : -0.10;
+
+    if (!existingResult.row) {
+      const initMastery = Math.min(1.0, Math.max(0.0, INITIAL_MASTERY + delta));
+      const { data, error } = await db
+        .from("vocabulary")
+        .insert({
+          user_id: req.user_id,
+          word_native,
+          word_english,
+          language,
+          times_seen: 1,
+          times_clicked: correct ? 0 : 1,
+          mastery_score: initMastery,
+          last_seen: now,
+          first_seen: now,
+          ...(correct ? {} : { last_clicked: now }),
+        })
+        .select()
+        .single();
+
+      if (error) return sendError(res, 400, error.message);
+      return res.status(201).json(data);
+    }
+
+    const newMastery = Math.min(1.0, Math.max(0.0, existingResult.row.mastery_score + delta));
+    const { data, error } = await db
+      .from("vocabulary")
+      .update({
+        times_seen: existingResult.row.times_seen + 1,
+        times_clicked: correct ? existingResult.row.times_clicked : existingResult.row.times_clicked + 1,
+        mastery_score: newMastery,
+        last_seen: now,
+        ...(correct ? {} : { last_clicked: now }),
+      })
+      .eq("id", existingResult.row.id)
+      .select()
+      .single();
+
+    if (error) return sendError(res, 400, error.message);
+    return res.json(data);
+  }
+);
+
 module.exports = router;

@@ -35,11 +35,16 @@ CODE-SWITCHING RULES:
 - Replace ${rule.percentage} of words with ${target_lang} equivalents
 - Only replace ${rule.description}
 
-CRITICAL — every ${target_lang} word you include MUST use this exact format: {{target_word|english_translation}}
-You MUST wrap every single ${target_lang} word in double curly braces like this.
-NEVER write a bare ${target_lang} word outside of {{}} tokens.
-Correct example: "That's a {{fascinante|fascinating}} {{texto|text}}! The {{manera|way}} it challenges conventional wisdom is really thought-provoking."
-Wrong example: "That's a fascinante texto!"
+CRITICAL FORMAT RULE — no exceptions:
+Every ${target_lang} word you include MUST be wrapped in double curly braces: {{word|translation}}
+The format is: opening double brace, the ${target_lang} word, a pipe character |, the English translation, closing double brace.
+
+✅ CORRECT: "This {{texto|text}} raises {{interesantes|interesting}} points about {{política|politics}}."
+❌ WRONG bare word: "This texto raises interesantes points."
+❌ WRONG parentheses: "This texto (text) raises interesting points."
+❌ WRONG any other format: never use brackets, slashes, or any other notation.
+
+If you include a ${target_lang} word without {{}} wrapping, you are breaking the app. Every single ${target_lang} word must use {{word|translation}}.
 
 - Vary which words you replace — don't always pick the same word types
 - The replaced words should feel natural in context, not forced

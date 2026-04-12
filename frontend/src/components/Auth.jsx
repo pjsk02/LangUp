@@ -1,22 +1,10 @@
 import { useState } from 'react'
 import { login, signup } from '../api'
 
-const LANGUAGES = [
-  { value: 'Spanish', label: 'Spanish' },
-  { value: 'French', label: 'French' },
-  { value: 'Japanese', label: 'Japanese' },
-  { value: 'Mandarin', label: 'Mandarin' },
-  { value: 'German', label: 'German' },
-  { value: 'Korean', label: 'Korean' },
-  { value: 'Portuguese', label: 'Portuguese' },
-  { value: 'Italian', label: 'Italian' },
-]
-
 export default function Auth({ onLogin }) {
-  const [mode, setMode] = useState('login') // 'login' | 'signup'
+  const [mode, setMode] = useState('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [targetLanguage, setTargetLanguage] = useState('Spanish')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -25,16 +13,12 @@ export default function Auth({ onLogin }) {
     setError('')
     setLoading(true)
     try {
-      let data
-      if (mode === 'login') {
-        data = await login(email, password)
-      } else {
-        data = await signup(email, password, targetLanguage)
-      }
-      // data.token + data.user from backend
+      const data = mode === 'login'
+        ? await login(email, password)
+        : await signup(email, password)
       const profile = {
         native_lang: 'English',
-        target_lang: data.user?.target_language || targetLanguage,
+        target_lang: data.user?.target_language || 'Spanish',
         level: data.user?.level || 1,
       }
       onLogin(data.token, profile)
@@ -77,7 +61,6 @@ export default function Auth({ onLogin }) {
               autoFocus
             />
           </label>
-
           <label>
             Password
             <input
@@ -88,20 +71,6 @@ export default function Auth({ onLogin }) {
               minLength={6}
             />
           </label>
-
-          {mode === 'signup' && (
-            <label>
-              Target language
-              <select
-                value={targetLanguage}
-                onChange={e => setTargetLanguage(e.target.value)}
-              >
-                {LANGUAGES.map(l => (
-                  <option key={l.value} value={l.value}>{l.label}</option>
-                ))}
-              </select>
-            </label>
-          )}
 
           {error && <p className="auth-error">{error}</p>}
 

@@ -31,6 +31,10 @@ router.post(
       .trim()
       .notEmpty()
       .withMessage("target_language is required"),
+    body("level")
+      .optional()
+      .isInt({ min: 1, max: 5 })
+      .withMessage("level must be between 1 and 5"),
   ],
   async (req, res) => {
     const invalid = validationError(req, res);
@@ -38,7 +42,7 @@ router.post(
       return invalid;
     }
 
-    const { email, password, target_language } = req.body;
+    const { email, password, target_language, level = 1 } = req.body;
 
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -63,6 +67,7 @@ router.post(
     const { error: profileError } = await userClient.from("profiles").insert({
       id: data.user.id,
       target_language,
+      proficiency_level: level,
     });
 
     if (profileError) {
@@ -71,7 +76,7 @@ router.post(
 
     return res.status(201).json({
       token: data.session.access_token,
-      user: { id: data.user.id, email: data.user.email, target_language, level: 1 },
+      user: { id: data.user.id, email: data.user.email, target_language, level },
     });
   }
 );

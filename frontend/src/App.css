@@ -152,11 +152,25 @@ input, select, textarea { font: inherit; }
   color: var(--accent-light);
 }
 
-.chat-meta {
-  font-size: 13px;
-  color: var(--text-muted);
+.chat-controls {
+  display: flex;
+  gap: 8px;
   flex: 1;
 }
+
+.header-select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  padding: 5px 10px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.header-select:hover,
+.header-select:focus { border-color: var(--accent); }
 
 .logout-btn {
   font-size: 13px;
@@ -222,6 +236,49 @@ input, select, textarea { font: inherit; }
   text-align: center;
 }
 
+/* ── Level suggestion banner ──────────────────────── */
+.level-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.level-banner--up {
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: var(--accent-light);
+}
+.level-banner--down {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+}
+.level-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.level-banner-accept {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent);
+  color: #fff;
+  transition: opacity 0.15s;
+}
+.level-banner-accept:hover { opacity: 0.85; }
+.level-banner-dismiss {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  transition: color 0.15s;
+}
+.level-banner-dismiss:hover { color: var(--text); }
+
 /* ── Target words ─────────────────────────────────── */
 .target-word {
   display: inline;
@@ -259,6 +316,53 @@ input, select, textarea { font: inherit; }
   border-top-color: var(--accent);
 }
 .target-word:hover .native-tooltip { opacity: 1; }
+
+/* ── Quiz (fill-in-the-blank) words ───────────────── */
+.quiz-word {
+  display: inline;
+  position: relative;
+}
+
+.quiz-input {
+  background: transparent;
+  border: none;
+  border-bottom: 2px dashed var(--accent);
+  color: var(--accent-light);
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  outline: none;
+  padding: 0 2px;
+  min-width: 32px;
+  text-align: center;
+  transition: border-color 0.15s;
+}
+.quiz-input::placeholder { color: var(--accent); opacity: 0.5; }
+.quiz-input:focus { border-bottom-color: var(--accent-light); }
+
+.quiz-word--correct {
+  color: #34d399;
+  font-weight: 700;
+  border-bottom: 2px solid #34d399;
+  animation: quiz-pop 0.3s ease;
+}
+.quiz-word--incorrect {
+  color: #f87171;
+  font-weight: 700;
+  border-bottom: 2px solid #f87171;
+  animation: quiz-shake 0.35s ease;
+}
+
+@keyframes quiz-pop {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+@keyframes quiz-shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-4px); }
+  60%       { transform: translateX(4px); }
+}
 
 /* ── Input area ───────────────────────────────────── */
 .input-area {

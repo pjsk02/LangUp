@@ -14,11 +14,18 @@ async function request(path, options = {}) {
 }
 
 // Auth
-export const signup = (email, password, target_language) =>
+export const signup = (email, password, target_language, level = 1) =>
   request("/auth/signup", {
     method: "POST",
     headers: headers(),
-    body: JSON.stringify({ email, password, target_language }),
+    body: JSON.stringify({ email, password, target_language, level }),
+  });
+
+export const updateProfile = (token, updates) =>
+  request("/profile", {
+    method: "PATCH",
+    headers: headers(token),
+    body: JSON.stringify(updates),
   });
 
 export const login = (email, password) =>
@@ -61,3 +68,10 @@ export const recordSeenBatch = (token, words) =>
 
 export const getVocab = (token) =>
   request("/vocab", { headers: headers(token) });
+
+export const recordAnswer = (token, word_native, word_english, language, correct) =>
+  request("/vocab/record-answer", {
+    method: "POST",
+    headers: headers(token),
+    body: JSON.stringify({ word_native, word_english, language, correct }),
+  });
