@@ -1,0 +1,48 @@
+# --- Dependencies (all apps: frontend, backend, …) ---
+node_modules/
+
+# --- Environment & secrets ---
+# Backend uses plain `.env` (see backend/.env.example: Supabase, OPENAI_API_KEY).
+.env
+.env.*
+!.env.example
+
+# --- Logs ---
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Test / coverage ---
+coverage/
+.nyc_output/
+
+# --- Build outputs ---
+build/
+dist/
+*.tsbuildinfo
+
+# --- Package managers (optional lockfile strategy: commit one, ignore others) ---
+# pnpm-lock.yaml
+# yarn.lock
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- IDE / editor ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# --- Caches ---
+.cache/
+.eslintcache
+
+# --- Yarn / CRA ---
+.pnp
+.pnp.js
