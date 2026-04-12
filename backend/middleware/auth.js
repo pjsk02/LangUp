@@ -1,3 +1,5 @@
+const { createClient } = require("@supabase/supabase-js");
+
 async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const parts = authHeader.split(" ");
@@ -23,7 +25,13 @@ async function authMiddleware(req, res, next) {
   }
 
   const user = await resp.json();
+  req.token = token;
   req.user = { id: user.id, email: user.email };
+  req.supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_ANON_KEY,
+    { global: { headers: { Authorization: `Bearer ${token}` } } }
+  );
   return next();
 }
 

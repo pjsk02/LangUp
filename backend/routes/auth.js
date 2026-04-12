@@ -108,11 +108,25 @@ router.post(
       process.env.SUPABASE_ANON_KEY,
       { global: { headers: { Authorization: `Bearer ${data.session.access_token}` } } }
     );
-    const { data: profile } = await userClient
+    const { data: profile, error: profileError } = await userClient
       .from("profiles")
       .select("target_language, proficiency_level")
       .eq("id", data.user.id)
-      .single();
+      .maybeSingle();
+
+    if (profileError) {
+      return authError(res, 400, profileError.message);
+    }
+
+    if (!profile) {
+      const { error: insertProfileError } = await userClient
+        .from("profiles")
+        .insert({ id: data.user.id });
+
+      if (insertProfileError) {
+        return authError(res, 400, insertProfileError.message);
+      }
+    }
 
     return res.json({
       token: data.session.access_token,

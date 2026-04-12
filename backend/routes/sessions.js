@@ -1,6 +1,6 @@
 const express = require("express");
 const { body, validationResult } = require("express-validator");
-const supabase = require("../services/supabase");
+const authMiddleware = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -21,23 +21,41 @@ function calculateScore(totalWordsSwapped, wordsClicked) {
   return ((totalWordsSwapped - wordsClicked) / totalWordsSwapped) * 100;
 }
 
-async function requireAuth(req, res, next) {
-  const authHeader = req.headers.authorization || "";
-  const parts = authHeader.split(" ");
+async function ensureProfileExists(db, user) {
+  const { data: profile, error: profileError } = await db
+    .from("profiles")
+    .select("id")
+    .eq("id", user.id)
+    .maybeSingle();
 
-  if (parts.length !== 2 || !/^Bearer$/i.test(parts[0])) {
-    return sendError(res, 401, "Authorization header with Bearer token is required");
+  if (profileError) {
+    return { error: profileError };
   }
 
-  const token = parts[1];
-  const { data, error } = await supabase.auth.getUser(token);
-
-  if (error || !data.user) {
-    return sendError(res, 401, "Invalid or expired token");
+  if (profile) {
+    return { ok: true };
   }
 
-  req.user_id = data.user.id;
-  return next();
+  const { error: insertError } = await db.from("profiles").insert({
+    id: user.id,
+  });
+
+  if (insertError) {
+    return { error: insertError };
+  }
+
+  return { ok: true };
+}
+
+async function insertSessionRow(db, userId, payload) {
+  return db
+    .from("sessions")
+    .insert({
+      user_id: userId,
+      ...payload,
+    })
+    .select()
+    .single();
 }
 
 function getWeekStartUtc(date) {
@@ -48,7 +66,7 @@ function getWeekStartUtc(date) {
   return d;
 }
 
-router.use(requireAuth);
+router.use(authMiddleware);
 
 router.post(
   "/",
@@ -80,23 +98,42 @@ router.post(
       return invalid;
     }
 
+    const db = req.supabase;
+    const profileReady = await ensureProfileExists(db, req.user);
+    if (profileReady.error) {
+      return sendError(res, 400, profileReady.error.message);
+    }
+
     const { content_snippet, total_words_swapped, words_clicked, level_used } =
       req.body;
 
     const score = calculateScore(total_words_swapped, words_clicked);
 
-    const { data, error } = await supabase
-      .from("sessions")
-      .insert({
-        user_id: req.user_id,
-        content_snippet,
-        total_words_swapped,
-        words_clicked,
-        level_used,
-        score,
-      })
-      .select()
-      .single();
+    const payload = {
+      content_snippet,
+      total_words_swapped,
+      words_clicked,
+      level_used,
+      score,
+    };
+
+    let { data, error } = await insertSessionRow(db, req.user.id, payload);
+
+    // Defensive fallback for older users missing profile row.
+    // If FK still fails, create/upsert profile and retry once.
+    if (error && error.code === "23503") {
+      const { error: upsertProfileError } = await db
+        .from("profiles")
+        .upsert({ id: req.user.id }, { onConflict: "id" });
+
+      if (upsertProfileError) {
+        return sendError(res, 400, upsertProfileError.message);
+      }
+
+      const retry = await insertSessionRow(db, req.user.id, payload);
+      data = retry.data;
+      error = retry.error;
+    }
 
     if (error) {
       return sendError(res, 400, error.message);
@@ -107,10 +144,12 @@ router.post(
 );
 
 router.get("/", async (req, res) => {
-  const { data: sessions, error: sessionsError } = await supabase
+  const db = req.supabase;
+
+  const { data: sessions, error: sessionsError } = await db
     .from("sessions")
     .select("*")
-    .eq("user_id", req.user_id)
+    .eq("user_id", req.user.id)
     .order("created_at", { ascending: false })
     .limit(20);
 
@@ -118,10 +157,10 @@ router.get("/", async (req, res) => {
     return sendError(res, 400, sessionsError.message);
   }
 
-  const { data: allScores, error: statsError } = await supabase
+  const { data: allScores, error: statsError } = await db
     .from("sessions")
     .select("score")
-    .eq("user_id", req.user_id);
+    .eq("user_id", req.user.id);
 
   if (statsError) {
     return sendError(res, 400, statsError.message);
@@ -146,15 +185,16 @@ router.get("/", async (req, res) => {
 });
 
 router.get("/progress", async (req, res) => {
+  const db = req.supabase;
   const now = new Date();
   const currentWeekStart = getWeekStartUtc(now);
   const firstWeekStart = new Date(currentWeekStart);
   firstWeekStart.setUTCDate(firstWeekStart.getUTCDate() - 7 * 7);
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("sessions")
     .select("score, created_at")
-    .eq("user_id", req.user_id)
+    .eq("user_id", req.user.id)
     .gte("created_at", firstWeekStart.toISOString())
     .order("created_at", { ascending: true });
 

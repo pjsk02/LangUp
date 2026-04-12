@@ -36,12 +36,16 @@ export default function ReaderScreen() {
   const state = isReaderState(location.state) ? location.state : null;
 
   const [wordsClicked, setWordsClicked] = useState(0);
+  const [revealedWordIndexes, setRevealedWordIndexes] = useState<Set<number>>(
+    new Set()
+  );
   const [modalOpen, setModalOpen] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     setWordsClicked(0);
+    setRevealedWordIndexes(new Set());
   }, [state?.sourceText, state?.blend]);
 
   const scorePct = state
@@ -49,8 +53,15 @@ export default function ReaderScreen() {
     : 0;
 
   const handleWordActivate = useCallback(
-    async (w: ReaderLocationState["blend"]["words"][0]) => {
+    async (w: ReaderLocationState["blend"]["words"][0], index: number) => {
       if (!w.is_swapped || !state || !token) return;
+      if (revealedWordIndexes.has(index)) return;
+
+      setRevealedWordIndexes((prev) => {
+        const next = new Set(prev);
+        next.add(index);
+        return next;
+      });
       setWordsClicked((n) => n + 1);
       try {
         await recordClick(
@@ -63,7 +74,7 @@ export default function ReaderScreen() {
         /* non-blocking */
       }
     },
-    [state, token]
+    [revealedWordIndexes, state, token]
   );
 
   useEffect(() => {
@@ -142,9 +153,8 @@ export default function ReaderScreen() {
       <main className="lu-reader-main">
         <div className="lu-word-flow" role="article" aria-label="Blended passage">
           {words.map((w, i) => {
-            const tip =
-              [w.translation, w.romaji].filter(Boolean).join(" · ") ||
-              w.original;
+            const isRevealed = revealedWordIndexes.has(i);
+            const revealLabel = w.translation || w.original;
 
             return (
               <Fragment key={i}>
@@ -153,11 +163,10 @@ export default function ReaderScreen() {
                 ) : (
                   <button
                     type="button"
-                    className="lu-word-stack"
-                    title={tip}
-                    onClick={() => handleWordActivate(w)}
+                    className={`lu-word-stack ${isRevealed ? "is-revealed" : ""}`}
+                    onClick={() => handleWordActivate(w, i)}
                   >
-                    <span className="gloss-en">{glossLabel(w.original)}</span>
+                    <span className="gloss-en">{isRevealed ? glossLabel(revealLabel) : "\u00a0"}</span>
                     <span className="romaji">{w.romaji || "\u00a0"}</span>
                     <span className="pill">
                       <span>{w.swapped}</span>
@@ -270,3 +279,5 @@ export default function ReaderScreen() {
     </div>
   );
 }
+
+

@@ -1472,7 +1472,7 @@ textarea {
   text-align: center;
   line-height: 1.2;
 }
-.lu-word-stack:hover .gloss-en {
+.lu-word-stack.is-revealed .gloss-en {
   opacity: 1;
 }
 
