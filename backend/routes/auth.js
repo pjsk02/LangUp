@@ -53,7 +53,14 @@ router.post(
       return authError(res, 400, "Unable to create user");
     }
 
-    const { error: profileError } = await supabase.from("profiles").insert({
+    // Use the user's own session token so RLS auth.uid() check passes
+    const userClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY,
+      { global: { headers: { Authorization: `Bearer ${data.session.access_token}` } } }
+    );
+
+    const { error: profileError } = await userClient.from("profiles").insert({
       id: data.user.id,
       target_language,
     });
@@ -62,7 +69,10 @@ router.post(
       return authError(res, 400, profileError.message);
     }
 
-    return res.status(201).json({ user: data.user, session: data.session });
+    return res.status(201).json({
+      token: data.session.access_token,
+      user: { id: data.user.id, email: data.user.email, target_language, level: 1 },
+    });
   }
 );
 
@@ -92,7 +102,27 @@ router.post(
       return authError(res, 401, error.message);
     }
 
-    return res.json({ user: data.user, session: data.session });
+    // Fetch profile for target_language / level
+    const userClient = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_ANON_KEY,
+      { global: { headers: { Authorization: `Bearer ${data.session.access_token}` } } }
+    );
+    const { data: profile } = await userClient
+      .from("profiles")
+      .select("target_language, proficiency_level")
+      .eq("id", data.user.id)
+      .single();
+
+    return res.json({
+      token: data.session.access_token,
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        target_language: profile?.target_language ?? "Spanish",
+        level: profile?.proficiency_level ?? 1,
+      },
+    });
   }
 );
 
